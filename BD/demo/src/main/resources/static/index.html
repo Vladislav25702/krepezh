@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Крепёж</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        table, th, td { border: 1px solid #ccc; border-collapse: collapse; padding: 5px; }
+        th { background: #f0f0f0; }
+        .block { margin-bottom: 20px; padding: 10px; border: 1px solid #ccc; }
+        input, button, select { margin: 5px; padding: 5px; }
+        .condition { margin: 5px 0; }
+        .edit-form { background: #ffffcc; padding: 10px; margin-top: 10px; display: none; }
+    </style>
+</head>
+<body>
+
+<h1>Справочник крепежа</h1>
+
+
+<div class="block">
+    <b>Поиск</b>
+    <div id="conditions">
+        <div class="condition">
+            <input type="text" placeholder="Ключ (d, l, s, type)" class="key" style="width:120px">
+            <input type="text" placeholder="Значение" class="val" style="width:120px">
+        </div>
+    </div>
+    <button onclick="addCondition()">+ Добавить условие</button>
+    <button onclick="search()">Найти</button>
+    <button onclick="loadAll()">Все</button>
+</div>
+
+
+<div class="block">
+    <b>Добавить</b><br>
+    <input type="text" id="title" placeholder="Название" style="width:200px">
+    <input type="text" id="gost" placeholder="ГОСТ" style="width:150px">
+    <select id="type">
+        <option value="болт">Болт</option>
+        <option value="гайка">Гайка</option>
+        <option value="шуруп">Шуруп</option>
+        <option value="шпилька">Шпилька</option>
+    </select>
+    <textarea id="props" rows="2" cols="50" placeholder='[{"key":"d","value":12},{"key":"l","value":60}]'></textarea>
+    <button onclick="add()">Добавить</button>
+</div>
+
+
+<div id="editForm" class="edit-form">
+    <b>Редактировать</b><br>
+    <input type="hidden" id="editId">
+    <input type="text" id="editTitle" placeholder="Название" style="width:200px">
+    <input type="text" id="editGost" placeholder="ГОСТ" style="width:150px">
+    <select id="editType">
+        <option value="болт">Болт</option>
+        <option value="гайка">Гайка</option>
+        <option value="шуруп">Шуруп</option>
+        <option value="шпилька">Шпилька</option>
+    </select>
+    <textarea id="editProps" rows="2" cols="50"></textarea>
+    <button onclick="update()">Сохранить</button>
+    <button onclick="closeEdit()">Отмена</button>
+</div>
+
+<table id="table">
+    <thead>
+        <tr><th>ID</th><th>Название</th><th>Тип</th><th>ГОСТ</th><th>Свойства</th><th></th><th></th></tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+
+
+<script>
+    const API = 'http://localhost:8080/restapi';
+
+    function addCondition() {
+        const div = document.createElement('div');
+        div.className = 'condition';
+        div.innerHTML = `
+            <input type="text" placeholder="Ключ (d, l, s, type)" class="key" style="width:120px">
+            <input type="text" placeholder="Значение" class="val" style="width:120px">
+            <button onclick="this.parentElement.remove()">✖</button>
+        `;
+        document.getElementById('conditions').appendChild(div);
+    }
+
+    async function search() {
+        const keys = document.querySelectorAll('.key');
+        const vals = document.querySelectorAll('.val');
+        let params = '';
+        for (let i = 0; i < keys.length; i++) {
+            if (keys[i].value && vals[i].value) {
+                params += (params ? '&' : '') + keys[i].value + '=' + encodeURIComponent(vals[i].value);
+            }
+        }
+        if (!params) { loadAll(); return; }
+        const res = await fetch(API + '/search?' + params);
+        const data = await res.json();
+        render(data);
+    }
+
+    async function loadAll() {
+        const res = await fetch(API + '/all');
+        const data = await res.json();
+        render(data);
+    }
+
+    async function add() {
+        const item = {
+            title: document.getElementById('title').value,
+            type: document.getElementById('type').value,
+            gostNumber: document.getElementById('gost').value,
+            properties: JSON.parse(document.getElementById('props').value)
+        };
+        await fetch(API + '/add', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(item) });
+        loadAll();
+        clearAddForm();
+    }
+
+    function clearAddForm() {
+        document.getElementById('title').value = '';
+        document.getElementById('gost').value = '';
+        document.getElementById('props').value = '';
+    }
+
+    function edit(id, title, type, gost, props) {
+        document.getElementById('editId').value = id;
+        document.getElementById('editTitle').value = title;
+        document.getElementById('editType').value = type;
+        document.getElementById('editGost').value = gost;
+        document.getElementById('editProps').value = JSON.stringify(props, null, 2);
+        document.getElementById('editForm').style.display = 'block';
+    }
+
+    async function update() {
+        const id = document.getElementById('editId').value;
+        const item = {
+            title: document.getElementById('editTitle').value,
+            type: document.getElementById('editType').value,
+            gostNumber: document.getElementById('editGost').value,
+            properties: JSON.parse(document.getElementById('editProps').value)
+        };
+        await fetch(API + '/update/' + id, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(item) });
+        closeEdit();
+        loadAll();
+    }
+
+    function closeEdit() {
+        document.getElementById('editForm').style.display = 'none';
+    }
+
+    async function del(id) {
+        if (confirm('Удалить?')) {
+            await fetch(API + '/delete/' + id, { method: 'DELETE' });
+            loadAll();
+        }
+    }
+
+    function render(data) {
+        const tbody = document.getElementById('tbody');
+        tbody.innerHTML = '';
+        for (let item of data) {
+            let props = '';
+            if (item.properties) {
+                props = item.properties.map(p => `${p.key}=${p.value}`).join(', ');
+            }
+            const row = tbody.insertRow();
+            row.insertCell(0).innerText = item.id;
+            row.insertCell(1).innerText = item.title || item.name;
+            row.insertCell(2).innerText = item.type;
+            row.insertCell(3).innerText = item.gostNumber || item.gost_number;
+            row.insertCell(4).innerText = props;
+            
+            const editBtn = document.createElement('button');
+            editBtn.innerText = '✏️';
+            editBtn.onclick = () => edit(item.id, item.title, item.type, item.gostNumber, item.properties);
+            row.insertCell(5).appendChild(editBtn);
+            
+            const delBtn = document.createElement('button');
+            delBtn.innerText = 'X';
+            delBtn.onclick = () => del(item.id);
+            row.insertCell(6).appendChild(delBtn);
+        }
+    }
+
+    loadAll();
+</script>
+
+</body>
+</html>
